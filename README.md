@@ -97,7 +97,7 @@ Resposta enviada ao usuário com fontes consultadas
 ## Estrutura do Projeto
 
 ```
-hardware-rag-bot/
+TrabalhoIAGenerativa/
 ├── bot.py                    ← Ponto de entrada — bot do Telegram
 ├── ingest.py                 ← Indexação dos PDFs no banco vetorial
 ├── requirements.txt          ← Dependências Python
@@ -126,8 +126,8 @@ hardware-rag-bot/
 
 ```bash
 # 1. Clone o repositório
-git clone https://github.com/seu-usuario/hardware-rag-bot.git
-cd hardware-rag-bot
+git clone https://github.com/MateusBrunozi/TrabalhoIAGenerativa
+cd TrabalhoIAGenerativa
 
 # 2. Crie e ative o ambiente virtual
 python -m venv venv
