@@ -1,6 +1,6 @@
-## 📋 Sobre o Projeto
+## 📋 Sobre o Trabalho
 
-Este projeto implementa um **chatbot inteligente via Telegram** capaz de auxiliar técnicos e usuários no diagnóstico de falhas em hardware de computadores, combinando **IA Generativa** com **Arquitetura RAG** *(Retrieval-Augmented Generation)*.
+Este trabalho implementa um **chatbot inteligente via Telegram** capaz de auxiliar técnicos e usuários no diagnóstico de falhas em hardware de computadores, combinando **IA Generativa** com **Arquitetura RAG** *(Retrieval-Augmented Generation)*.
 
 O sistema interpreta sintomas descritos em linguagem natural, consulta automaticamente uma base de conhecimento formada por manuais técnicos oficiais dos fabricantes, e gera diagnósticos contextualizados com possíveis causas e testes sugeridos.
 
