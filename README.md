@@ -1,4 +1,4 @@
-## 📋 Sobre o Trabalho
+## Sobre o Trabalho
 
 Este trabalho implementa um **chatbot inteligente via Telegram** capaz de auxiliar técnicos e usuários no diagnóstico de falhas em hardware de computadores, combinando **IA Generativa** com **Arquitetura RAG** *(Retrieval-Augmented Generation)*.
 
@@ -6,7 +6,7 @@ O sistema interpreta sintomas descritos em linguagem natural, consulta automatic
 
 ---
 
-## 🎯 Problema Abordado
+## Problema Abordado
 
 O diagnóstico de hardware é um processo que:
 
@@ -19,7 +19,7 @@ O diagnóstico de hardware é um processo que:
 
 ---
 
-## 💡 Solução
+## Solução
 
 Um chatbot no Telegram com fluxo guiado de seleção de equipamento e diagnóstico assistido por IA, onde:
 
@@ -31,7 +31,7 @@ Um chatbot no Telegram com fluxo guiado de seleção de equipamento e diagnósti
 
 ---
 
-## 🏗️ Arquitetura
+## Arquitetura
 
 ```
 Usuário (Telegram)
@@ -70,7 +70,7 @@ Resposta enviada ao usuário com fontes consultadas
 
 ---
 
-## 🖥️ Hardware Suportado
+## Hardware Suportado
 
 | Categoria | Fabricantes | Plataformas |
 |-----------|-------------|-------------|
@@ -79,7 +79,7 @@ Resposta enviada ao usuário com fontes consultadas
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias Utilizadas
 
 | Tecnologia | Versão | Função |
 |---|---|---|
@@ -94,7 +94,7 @@ Resposta enviada ao usuário com fontes consultadas
 
 ---
 
-## 📁 Estrutura do Projeto
+## Estrutura do Projeto
 
 ```
 hardware-rag-bot/
@@ -114,7 +114,7 @@ hardware-rag-bot/
 
 ---
 
-## 🚀 Como Executar
+## Como Executar
 
 ### Pré-requisitos
 
@@ -159,7 +159,7 @@ python bot.py
 
 ---
 
-## 📱 Demonstração do Fluxo
+## Demonstração do Fluxo
 
 ```
 /start
@@ -171,7 +171,7 @@ python bot.py
 
 ---
 
-## ⚙️ Parâmetros RAG Configuráveis
+## Parâmetros RAG Configuráveis
 
 | Parâmetro | Descrição | Padrão |
 |---|---|---|
@@ -184,3 +184,6 @@ python bot.py
 
 ---
 
+## Autor
+
+* **Mateus Brunozi** - [GitHub](https://github.com/MateusBrunozi)
