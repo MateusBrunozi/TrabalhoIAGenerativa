@@ -1,0 +1,22 @@
+# Bot Telegram
+python-telegram-bot==21.6
+
+# LangChain + RAG
+langchain==0.3.7
+langchain-community==0.3.7
+
+# Banco vetorial
+chromadb==0.5.18
+
+# Embeddings multilíngues (roda localmente, sem GPU)
+sentence-transformers==3.2.1
+
+# PDF loader
+pypdf==4.3.1
+
+# Cliente OpenAI-compatible (para LM Studio)
+openai==1.54.4
+
+# Utilitários
+python-dotenv==1.0.1
+tqdm==4.67.0
