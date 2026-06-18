@@ -179,7 +179,7 @@ python bot.py
 | `CHUNK_SIZE` | Tamanho dos trechos indexados (caracteres) | 1000 |
 | `CHUNK_OVERLAP` | Sobreposição entre trechos | 200 |
 | `TOP_K_RESULTS` | Trechos recuperados por consulta | 5 |
-| `SIMILARITY_THRESH` | Limiar mínimo de relevância (0–1) | 0.3 |
+| `SIMILARITY_THRESH` | Limiar mínimo de relevância (0–1) | 0.2 |
 | `TEMPERATURE` | Criatividade do modelo (0 = mais preciso) | 0.2 |
 | `MAX_HISTORY` | Mensagens mantidas por sessão | 10 |
 
