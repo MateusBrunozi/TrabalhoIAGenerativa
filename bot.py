@@ -18,7 +18,7 @@ from config.settings import TELEGRAM_BOT_TOKEN, VECTORDB_DIR
 from src.rag_engine import RAGEngine
 from src.session_manager import SessionManager
 from src.hardware_catalog import (
-    CATALOG, get_marcas, get_modelos, get_modelo_info, get_filtro_rag,
+    CATALOG, get_marcas, get_modelos, get_modelo_info, get_filtro_rag, get_genericos_marca,
 )
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -80,10 +80,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     await update.message.reply_text(
-        f"👋 Olá, *{user.first_name}*\\!\n\n"
-        "🔧 *Assistente de Diagnóstico de Hardware*\n\n"
-        "Selecione a *marca* do equipamento para começar:",
-        
+        f"👋 Olá, {user.first_name}!\n\n"
+        "🔧 Assistente de Diagnóstico de Hardware\n\n"
+        "Selecione a marca do equipamento para começar:",
         reply_markup  = teclado_marcas(),
     )
 
@@ -93,24 +92,22 @@ async def cmd_novo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     session.clear(chat_id)
 
     await update.message.reply_text(
-        "*Nova sessão iniciada\\.* Selecione a marca do equipamento:",
-        
+        "Nova sessão iniciada. Selecione a marca do equipamento:",
         reply_markup = teclado_marcas(),
     )
 
 
 async def cmd_ajuda(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "*Comandos*\n\n"
+        "Comandos\n\n"
         "/start  – Apresentação\n"
         "/novo   – Reinicia e escolhe novo equipamento\n"
         "/ajuda  – Esta mensagem\n"
         "/status – Status do sistema\n\n"
-        "*Dicas para um bom diagnóstico:*\n"
+        "Dicas para um bom diagnóstico:\n"
         "• Descreva os sintomas com detalhes\n"
         "• Mencione LEDs acesos, beeps ou códigos\n"
         "• Responda as perguntas de retorno do bot",
-        
     )
 
 
@@ -121,19 +118,18 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         rag.initialize()
         count     = rag._vectorstore._collection.count()
-        db_status = f"✅ Online \\({count:,} vetores\\)"
+        db_status = f"✅ Online ({count:,} vetores)"
     except Exception as e:
         db_status = f"❌ Erro: {e}"
 
-    hw = f"`{s.modelo_desc}`" if s.modelo_desc else "_Nenhum selecionado_"
+    hw = s.modelo_desc if s.modelo_desc else "Nenhum selecionado"
 
     await update.message.reply_text(
-        "📊 *Status do Sistema*\n\n"
+        "📊 Status do Sistema\n\n"
         f"🗄️ Base de conhecimento: {db_status}\n"
         f"🖥️ Equipamento ativo: {hw}\n"
-        f"💬 Mensagens na sessão: {s.session_length if hasattr(s, 'session_length') else len(s.historico)}\n"
-        f"🤖 Modelo: Gemma 3 12B \\(LM Studio\\)",
-        
+        f"💬 Mensagens na sessão: {len(s.historico)}\n"
+        f"🤖 Modelo: Gemma 3 12B (LM Studio)",
     )
 
 
@@ -244,9 +240,8 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ── Bloqueia se hardware ainda não selecionado ──────────────────────────
     if s.estado != "ativo":
         await update.message.reply_text(
-            "⚠️ *Selecione o equipamento antes de começar\\.*\n\n"
+            "⚠️ Selecione o equipamento antes de começar.\n\n"
             "Use os botões abaixo para escolher a marca:",
-            
             reply_markup = teclado_marcas(),
         )
         session.clear(chat_id)   # reseta para garantir estado limpo
@@ -261,51 +256,83 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     try:
         result = rag.generate(
-            user_message = user_text,
-            history      = history,
-            filtro_rag   = s.filtro_rag,
-            modelo_desc  = s.modelo_desc,
+            user_message    = user_text,
+            history         = history,
+            filtro_rag      = s.filtro_rag,
+            genericos_marca = get_genericos_marca(s.marca),
+            modelo_desc     = s.modelo_desc,
         )
 
         answer      = result["answer"]
         sources     = result["sources"]
         has_context = result["has_context"]
+        blocked     = result.get("blocked", False)
+
+        camada = result.get("camada", "nenhum")
 
         footer = ""
-        if has_context and sources:
+        if blocked:
+            footer = ""  # mensagem de bloqueio já é autoexplicativa
+        elif has_context and sources:
             srcs   = "\n".join(f"  • {src}" for src in sources)
-            footer = f"\n\n📚 *Fontes consultadas:*\n{srcs}"
-        elif not has_context:
-            footer = (
-                "\n\n⚠️ _Nenhum trecho dos manuais foi encontrado. "
-                "Resposta baseada apenas no conhecimento geral do modelo._"
-            )
-
-        session.add_message(chat_id, "user",      user_text)
-        session.add_message(chat_id, "assistant", answer)
-
-        full_response = answer + footer
-
-        # Telegram: limite de 4096 chars por mensagem
-        for i in range(0, len(full_response), 4000):
-            await update.message.reply_text(
-                full_response[i : i + 4000],
+            
+            # Checa qual foi a camada utilizada para ajustar o texto do rodapé
+            if camada == "especifico":
+                footer = f"\n\n📚 Fontes consultadas (manual específico):\n{srcs}"
+            elif camada == "generico":
+                footer = f"\n\nℹ️ Manual específico não detalhou esse sintoma. Usei manuais genéricos da marca:\n{srcs}"
+            elif camada == "misto":
+                footer = f"\n\n📚 Fontes consultadas (manuais específicos e genéricos combinados):\n{srcs}"
+            else:
+                footer = f"\n\n📚 Fontes consultadas:\n{srcs}"
                 
+        else:
+            footer = (
+                f"\n\n⚠️ Nenhum manual (específico ou genérico) "
+                f"foi encontrado para este sintoma. "
+                f"Resposta baseada apenas no conhecimento geral do modelo."
             )
+
+        # Não salva no histórico se foi bloqueado por escopo (evita poluir contexto)
+        if not blocked:
+            session.add_message(chat_id, "user",      user_text)
+            session.add_message(chat_id, "assistant", answer)
+
+        full_response = answer
+
+        # Envia a resposta da IA dividida em blocos de até 4000 caracteres
+        while len(full_response) > 0:
+            if len(full_response) <= 4000:
+                chunk = full_response
+                full_response = ""
+            else:
+                # Tenta quebrar na última quebra de linha antes do limite
+                cut_index = full_response.rfind('\n', 0, 4000)
+                if cut_index == -1:
+                    cut_index = full_response.rfind(' ', 0, 4000)
+                if cut_index == -1:
+                    cut_index = 4000
+                
+                chunk = full_response[:cut_index]
+                full_response = full_response[cut_index:].lstrip()
+
+            await update.message.reply_text(chunk)
+
+        # Envia o rodapé (footer) como uma mensagem final separada
+        if footer:
+            await update.message.reply_text(footer.strip())
 
     except ConnectionError:
         await update.message.reply_text(
-            "❌ *LM Studio inacessível.*\n\n"
+            "❌ LM Studio inacessível.\n\n"
             "Verifique se o servidor local está ativo na porta 1234 "
-            "com o modelo Gemma 3 12B carregado.",
-            
+            "com o modelo carregado.",
         )
     except Exception as e:
         logger.exception("Erro no chat %d", chat_id)
         await update.message.reply_text(
-            f"❌ *Erro inesperado.*\n\n`{type(e).__name__}: {e}`\n\n"
+            f"❌ Erro inesperado.\n\n{type(e).__name__}: {e}\n\n"
             "Use /novo para reiniciar a sessão.",
-            
         )
 
 

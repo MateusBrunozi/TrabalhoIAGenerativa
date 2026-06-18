@@ -83,6 +83,7 @@ def build_vectorstore(chunks: list) -> Chroma:
         embedding          = embeddings,
         persist_directory  = VECTORDB_DIR,
         collection_name    = "hardware_manuals",
+        collection_metadata={"hnsw:space": "cosine"}
     )
 
     elapsed = time.time() - start

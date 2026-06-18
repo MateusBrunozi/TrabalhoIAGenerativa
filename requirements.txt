@@ -15,8 +15,12 @@ sentence-transformers==3.2.1
 pypdf==4.3.1
 
 # Cliente OpenAI-compatible (para LM Studio)
-openai==1.54.4
+openai>=2.43.0
+httpx>=0.27.0
 
 # Utilitários
 python-dotenv==1.0.1
 tqdm==4.67.0
+
+# Criptografia para PDFs protegidos
+cryptography>=3.1

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import Optional
+from pathlib import Path
 
 from config.settings import MAX_HISTORY
 
@@ -26,6 +27,9 @@ class UserSession:
     modelo_desc:    Optional[str]    = None   # ex: "MSI MAG B550 Tomahawk (AMD AM4)"
     filtro_rag:     list[str]        = field(default_factory=list)
     ultima_ativ:    datetime         = field(default_factory=datetime.now)
+    
+    # --- NOVO: ID único para o arquivo de log baseado na data e hora ---
+    session_id:     str              = field(default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S"))
 
     def reset(self):
         """Reinicia a sessão mantendo apenas o chat_id."""
@@ -36,6 +40,9 @@ class UserSession:
         self.modelo_desc = None
         self.filtro_rag  = []
         self.ultima_ativ = datetime.now()
+        
+        # --- NOVO: Gera um novo ID de sessão para criar um novo arquivo ---
+        self.session_id  = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 class SessionManager:
@@ -74,6 +81,9 @@ class SessionManager:
         s.filtro_rag   = filtro
         s.estado       = "ativo"
         s.ultima_ativ  = datetime.now()
+        
+        # Salva no log de texto qual equipamento foi escolhido para dar contexto à conversa
+        self._escrever_log(chat_id, s.session_id, f"⚙️ SISTEMA:\nEquipamento selecionado: {desc}")
 
     # ── Histórico de mensagens ───────────────────────────────────────────────
 
@@ -81,6 +91,11 @@ class SessionManager:
         s = self.get_or_create(chat_id)
         s.historico.append({"role": role, "content": content})
         s.ultima_ativ = datetime.now()
+        
+        # Salva a mensagem atual no arquivo de texto da sessão
+        remetente = "👤 Usuário" if role == "user" else "🤖 Assistente"
+        self._escrever_log(chat_id, s.session_id, f"{remetente}:\n{content}")
+
         # Mantém apenas as últimas MAX_HISTORY trocas
         if len(s.historico) > MAX_HISTORY * 2:
             s.historico = s.historico[-(MAX_HISTORY * 2):]
@@ -91,7 +106,7 @@ class SessionManager:
     def session_length(self, chat_id: int) -> int:
         return len(self.get_or_create(chat_id).historico)
 
-    # ── Limpeza ──────────────────────────────────────────────────────────────
+    # ── Limpeza e Logs ───────────────────────────────────────────────────────
 
     def _cleanup_expired(self):
         threshold = datetime.now() - timedelta(hours=self.SESSION_TTL_HOURS)
@@ -101,3 +116,20 @@ class SessionManager:
         ]
         for cid in expired:
             del self._sessions[cid]
+
+    def _escrever_log(self, chat_id: int, session_id: str, texto: str):
+        """Função auxiliar que cria a pasta e anexa o texto ao arquivo da sessão."""
+        log_dir = Path("data/chat_logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # O nome do arquivo será algo como: conversa_123456789_20260618_044530.txt
+        arquivo_log = log_dir / f"conversa_{chat_id}_{session_id}.txt"
+        
+        hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        try:
+            with open(arquivo_log, "a", encoding="utf-8") as f:
+                f.write(f"[{hora}] {texto}\n\n")
+                f.write("-" * 60 + "\n\n")
+        except Exception as e:
+            print(f"Erro ao salvar log da conversa: {e}")

@@ -1,5 +1,8 @@
 """
-rag_engine.py  –  Motor RAG com suporte a filtro por modelo de hardware.
+rag_engine.py  –  Motor RAG com filtro RÍGIDO por modelo + fallback
+                  para manuais genéricos da marca (Q-LED, POST codes,
+                  troubleshooting) quando o manual específico não
+                  cobre o sintoma perguntado.
 """
 
 from __future__ import annotations
@@ -18,23 +21,52 @@ from config.settings import (
 
 EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-SYSTEM_PROMPT = """Você é um assistente técnico especializado em diagnóstico de falhas em hardware de computadores.
+SYSTEM_PROMPT = """Você é o DiagnosticAI, um assistente técnico especializado EXCLUSIVAMENTE em diagnóstico de falhas em hardware.
 
-Seu papel é ajudar técnicos e usuários a identificar e resolver problemas de hardware com base em:
-- Sintomas descritos pelo usuário
-- Documentação técnica oficial dos fabricantes (manuais, troubleshooting guides)
-- Seu conhecimento técnico especializado
+## Diretrizes de Comportamento
+1. **Base nos Manuais:** A prioridade absoluta é a informação dos manuais técnicos fornecidos no contexto. Sempre cite a fonte (ex: "Conforme o manual da placa-mãe...").
+2. **Concisão e Veracidade:** Nunca invente causas ou testes que não façam sentido lógico. Se o manual não cobrir o problema e você não tiver certeza, seja honesto.
+3. **Segurança e Limites:** Avise o usuário imediatamente se uma falha for grave, apresentar risco elétrico ou exigir ferramentas de um técnico especializado.
+4. **Vocabulário Adaptável:** Explique os problemas de forma acessível, mas sem perder a precisão técnica.
+5. **Foco Estrito:** O escopo é estritamente diagnóstico de hardware. Se o usuário pedir para escrever códigos de programação, fazer cálculos, gerar textos criativos ou falar de assuntos gerais, RECUSE IMEDIATAMENTE. Responda APENAS: "Este assunto está fora do meu escopo. Sou programado exclusivamente para ajudar no diagnóstico de falhas físicas de hardware."
 
-## Diretrizes de comportamento
+## Estrutura da Resposta
+Sempre que aplicável à dúvida do usuário, organize sua resposta de forma clara, utilizando estas seções (omita as que não fizerem sentido para o contexto atual):
 
-1. **Diagnóstico guiado**: Faça perguntas objetivas para afunilar o problema antes de dar o diagnóstico final.
-2. **Base nos manuais**: Sempre que o contexto técnico estiver disponível, cite a fonte (ex: "Conforme o manual da MSI B550...").
-3. **Estrutura clara**: Organize suas respostas com seções bem definidas (Diagnóstico, Possíveis Causas, Testes Sugeridos).
-4. **Tom profissional e acessível**: Use linguagem técnica, mas explique termos complexos para iniciantes.
-5. **Honestidade**: Se não tiver certeza, diga claramente e sugira buscar suporte especializado.
-6. **Foco no hardware**: Não responda perguntas fora do escopo de diagnóstico do equipamento selecionado.
+🔍 **Diagnóstico Inicial:**
+Breve análise técnica do sintoma relatado.
+
+⚠️ **Possíveis Causas:**
+Liste as causas lógicas, da mais para a menos provável.
+
+🧪 **Testes Sugeridos:**
+Passos práticos e seguros que o usuário pode realizar para isolar o defeito.
+
+💡 **Próximos Passos:**
+Recomendações finais. 
+MUITO IMPORTANTE: Termine a resposta SEMPRE com uma pergunta objetiva para afunilar o diagnóstico (Ex: "Já realizou algum desses testes? Posso refinar o diagnóstico." ou "Qual exatamente é o comportamento quando você liga?").
 
 Responda sempre em português brasileiro."""
+
+PALAVRAS_HARDWARE = {
+    "placa", "mãe", "motherboard", "cpu", "processador", "ram", "memória",
+    "memoria", "led", "post", "bios", "uefi", "fonte", "ssd", "hd", "disco",
+    "ventoinha", "cooler", "temperatura", "trava", "reinicia", "desliga",
+    "não liga", "nao liga", "tela azul", "bsod", "bipe", "beep", "video",
+    "vídeo", "monitor", "gpu", "placa de vídeo", "bateria", "carregador",
+    "carrega", "notebook", "laptop", "slot", "soquete", "socket", "cmos",
+    "drivers", "driver", "superaquec", "lentidão", "lentidao",
+    "boot", "inicializa", "liga", "energia", "fan", "dissipador",
+}
+
+PALAVRAS_FORA_ESCOPO = {
+    "windows", "instalar", "jogo", "joguinho", "receita", "piada", 
+    "poema", "filme", "música", "musica", "namorada", "namorado", 
+    "política", "politica", "religião", "religiao", "futebol", 
+    "programar", "programação", "programacao", "código", "codigo", 
+    "python", "java", "javascript", "html", "css", "c++", "sql", 
+    "script", "calculadora", "matemática"
+}
 
 
 class RAGEngine:
@@ -66,6 +98,7 @@ class RAGEngine:
             persist_directory  = VECTORDB_DIR,
             embedding_function = self._embeddings,
             collection_name    = "hardware_manuals",
+            collection_metadata={"hnsw:space": "cosine"}
         )
 
         self._llm_client = OpenAI(
@@ -77,43 +110,111 @@ class RAGEngine:
         count = self._vectorstore._collection.count()
         print(f"✅ RAG Engine pronto  ({count} vetores no banco).")
 
-    # ── Recuperação com filtro opcional ─────────────────────────────────────
+    # ── Verificação de escopo ────────────────────────────────────────────────
+
+    @staticmethod
+    def is_fora_de_escopo(texto: str) -> bool:
+        texto_lower = texto.lower()
+        tem_termo_fora = any(p in texto_lower for p in PALAVRAS_FORA_ESCOPO)
+        tem_termo_hw   = any(p in texto_lower for p in PALAVRAS_HARDWARE)
+        return tem_termo_fora and not tem_termo_hw
+
+    # ── Recuperação em duas camadas: modelo específico + genéricos da marca ─
+
+    def _buscar_por_arquivo(
+        self,
+        resultados: list[tuple[Document, float]],
+        palavras: list[str],
+        modo: str = "all",
+    ) -> list[tuple[Document, float]]:
+        """
+        Filtra resultados cujo nome de arquivo bate com as palavras-chave.
+        modo="all"  → TODAS as palavras devem aparecer no nome (manual específico)
+        modo="any"  → BASTA UMA palavra aparecer no nome (manuais genéricos)
+        """
+        palavras = [p.lower() for p in palavras]
+
+        def bate(doc: Document) -> bool:
+            fonte = doc.metadata.get("source_file", "").lower()
+            if modo == "all":
+                return all(p in fonte for p in palavras)
+            return any(p in fonte for p in palavras)
+
+        return [(doc, score) for doc, score in resultados if bate(doc)]
 
     def retrieve(
         self,
         query: str,
         filtro_palavras: list[str] | None = None,
-    ) -> Tuple[List[Document], List[float]]:
-        """
-        Busca trechos relevantes. Se filtro_palavras for fornecido,
-        reordena os resultados priorizando chunks que mencionam
-        as palavras-chave do modelo selecionado.
-        """
-        # Busca mais resultados quando há filtro para ter margem de reordenação
-        k = TOP_K_RESULTS * 3 if filtro_palavras else TOP_K_RESULTS
+        genericos_marca: list[str] | None = None,
+    ) -> Tuple[List[Document], List[float], str]:
+        
+        print(f"\n🔍 Buscando por: '{query}'")
+        
+        docs_encontrados = []
+        scores_encontrados = []
+        camada_final = "nenhum"
 
-        results = self._vectorstore.similarity_search_with_relevance_scores(query, k=k)
-        filtered = [(doc, score) for doc, score in results if score >= SIMILARITY_THRESH]
-
-        if not filtered:
-            return [], []
-
-        # Reordena: chunks que batem com o filtro do modelo ficam no topo
+        # ── 1ª camada: manual específico do modelo ────────
         if filtro_palavras:
-            palavras = [p.lower() for p in filtro_palavras]
+            nome_esperado = "_".join(p.upper() for p in filtro_palavras) + ".pdf"
+            try:
+                results_especificos = self._vectorstore.similarity_search_with_relevance_scores(
+                    query, 
+                    k=TOP_K_RESULTS,
+                    filter={"source_file": nome_esperado}
+                )
+                
+                especificos = [(d, s) for d, s in results_especificos if s >= 0.05]
+                if especificos:
+                    docs, scores = zip(*especificos)
+                    docs_encontrados.extend(docs)
+                    scores_encontrados.extend(scores)
+                    print(f"✅ Encontrado no manual específico: {nome_esperado}")
+                    camada_final = "especifico"
+            except Exception as e:
+                print(f"Aviso na busca específica: {e}")
 
-            def score_filtro(item):
-                doc, sim = item
-                texto = (doc.page_content + doc.metadata.get("source_file", "")).lower()
-                hits  = sum(1 for p in palavras if p in texto)
-                return (hits, sim)   # ordena por hits desc, depois por similaridade
+        # ── 2ª camada: manuais genéricos da marca ────────────────────────────
+        if genericos_marca:
+            k = max(TOP_K_RESULTS * 10, 50)
+            results_gerais = self._vectorstore.similarity_search_with_relevance_scores(query, k=k)
+            
+            genericos = self._buscar_por_arquivo(results_gerais, genericos_marca, modo="any")
+            genericos_validos = [(d, s) for d, s in genericos if s >= 0.01]
+            
+            if genericos_validos:
+                genericos_validos = sorted(genericos_validos, key=lambda x: x[1], reverse=True)[:TOP_K_RESULTS]
+                docs, scores = zip(*genericos_validos)
+                docs_encontrados.extend(docs)
+                scores_encontrados.extend(scores)
+                print(f"✅ Encontrado em manuais genéricos")
+                
+                # Se já tinha achado no específico, a camada vira "misto" para o bot saber
+                if camada_final == "especifico":
+                    camada_final = "misto"
+                else:
+                    camada_final = "generico"
 
-            filtered.sort(key=score_filtro, reverse=True)
-            filtered = filtered[:TOP_K_RESULTS]
+        # ── Combina os resultados ───────────────────────────────────────────
+        if docs_encontrados:
+            # Junta tudo, remove possíveis duplicatas de texto e ordena pelos melhores scores
+            resultados_unicos = {}
+            for doc, score in zip(docs_encontrados, scores_encontrados):
+                if doc.page_content not in resultados_unicos or score > resultados_unicos[doc.page_content][1]:
+                    resultados_unicos[doc.page_content] = (doc, score)
+            
+            misto_ordenado = sorted(resultados_unicos.values(), key=lambda x: x[1], reverse=True)
+            
+            # Pegamos o dobro de documentos do limite normal para garantir que o contexto seja rico (específico + genérico)
+            misto_ordenado = misto_ordenado[:TOP_K_RESULTS * 2] 
+            
+            docs_finais, scores_finais = zip(*misto_ordenado)
+            return list(docs_finais), list(scores_finais), camada_final
 
-        docs, scores = zip(*filtered)
-        return list(docs), list(scores)
-
+        print("⚠️ Nenhum trecho alcançou os critérios mínimos.")
+        return [], [], "nenhum"
+    
     # ── Prompt ──────────────────────────────────────────────────────────────
 
     @staticmethod
@@ -137,9 +238,7 @@ class RAGEngine:
             system += (
                 f"\n\n## Equipamento selecionado pelo usuário\n"
                 f"**{modelo_desc}**\n"
-                f"Foque o diagnóstico exclusivamente neste equipamento. "
-                f"Se o usuário perguntar sobre outro hardware não suportado, "
-                f"redirecione gentilmente para o equipamento selecionado."
+                f"Foque o diagnóstico exclusivamente neste equipamento."
             )
 
         messages = [{"role": "system", "content": system}]
@@ -156,6 +255,7 @@ class RAGEngine:
         user_message: str,
         history: list[dict] | None = None,
         filtro_rag: list[str] | None = None,
+        genericos_marca: list[str] | None = None,
         modelo_desc: str | None = None,
     ) -> dict:
         self.initialize()
@@ -163,9 +263,28 @@ class RAGEngine:
         if history is None:
             history = []
 
-        docs, scores = self.retrieve(user_message, filtro_palavras=filtro_rag)
-        context      = self._build_context(docs, scores)
-        messages     = self._build_messages(context, history, user_message, modelo_desc)
+        # ── Bloqueio de escopo (antes de gastar tokens com o LLM) ──────────
+        if self.is_fora_de_escopo(user_message):
+            return {
+                "answer": (
+                    "Esse assunto está fora do escopo deste assistente. "
+                    "Eu posso ajudar apenas com diagnóstico de falhas no "
+                    f"equipamento selecionado{f' ({modelo_desc})' if modelo_desc else ''}.\n\n"
+                    "Descreva um sintoma ou problema técnico do hardware."
+                ),
+                "sources": [],
+                "has_context": False,
+                "camada": "bloqueado",
+                "blocked": True,
+            }
+
+        docs, scores, camada = self.retrieve(
+            user_message,
+            filtro_palavras = filtro_rag,
+            genericos_marca = genericos_marca,
+        )
+        context  = self._build_context(docs, scores)
+        messages = self._build_messages(context, history, user_message, modelo_desc)
 
         response = self._llm_client.chat.completions.create(
             model       = LM_STUDIO_MODEL,
@@ -181,4 +300,6 @@ class RAGEngine:
             "answer":      answer,
             "sources":     sources,
             "has_context": bool(docs),
+            "camada":      camada,
+            "blocked":     False,
         }
