@@ -1,0 +1,6 @@
+Coloque os manuais nessa pasta, pode dividir por pasta cada marca do manual e se possivel renomeie o manual para:
+Marca_Modelo_Nome.pdf
+ou
+Marca_Nome.pdf
+
+evite colocar manuais com muitas imagens, se possivel apenas com texto
