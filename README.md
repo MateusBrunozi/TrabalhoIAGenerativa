@@ -108,6 +108,7 @@ TrabalhoIAGenerativa/
 │   ├── session_manager.py    ← Gerenciamento de sessões por usuário
 │   └── hardware_catalog.py   ← Catálogo de marcas e modelos suportados
 ├── data/
+│   ├── chat_logs/            ← Histórico das conversas guardado automaticamente (não versionados)
 │   └── manuals/              ← PDFs dos manuais técnicos (não versionados)
 └── vectordb/                 ← Banco vetorial gerado (não versionado)
 ```
